@@ -1,10 +1,17 @@
 package br.com.lata.velha.shared.infrastructure.messaging;
 
 import br.com.lata.velha.shared.domain.events.DomainEvent;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.databind.AnnotationIntrospector;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.cfg.MapperConfig;
+import com.fasterxml.jackson.databind.introspect.Annotated;
+import com.fasterxml.jackson.databind.introspect.AnnotatedConstructor;
+import com.fasterxml.jackson.databind.introspect.JacksonAnnotationIntrospector;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.fasterxml.jackson.module.paramnames.ParameterNamesModule;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -13,8 +20,24 @@ public class EventSerializer {
     private final ObjectMapper objectMapper;
 
     public EventSerializer() {
-        this.objectMapper = new ObjectMapper()
+        ObjectMapper mapper = new ObjectMapper()
                 .registerModule(new JavaTimeModule())
+                .registerModule(new ParameterNamesModule());
+
+        AnnotationIntrospector forcePropertiesCreator = new JacksonAnnotationIntrospector() {
+            @Override
+            public JsonCreator.Mode findCreatorAnnotation(MapperConfig<?> config, Annotated a) {
+                JsonCreator.Mode mode = super.findCreatorAnnotation(config, a);
+                if (mode == null && a instanceof AnnotatedConstructor) {
+                    return JsonCreator.Mode.PROPERTIES;
+                }
+                return mode;
+            }
+        };
+
+        this.objectMapper = mapper
+                .setAnnotationIntrospector(AnnotationIntrospector.pair(
+                        forcePropertiesCreator, mapper.getDeserializationConfig().getAnnotationIntrospector()))
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
 
