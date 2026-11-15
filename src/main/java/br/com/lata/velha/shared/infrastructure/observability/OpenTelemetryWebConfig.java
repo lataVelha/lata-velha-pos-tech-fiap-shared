@@ -71,6 +71,9 @@ public class OpenTelemetryWebConfig implements WebMvcConfigurer {
             }
 
             span.setAttribute("span.kind", SpanKind.SERVER.name());
+            // Story 19.3: garante o nome final mesmo se a instrumentação
+            // atualizar o nome depois do onStart do SpanProcessor.
+            span.updateName("http.request");
 
             return true;
         }
@@ -88,6 +91,7 @@ public class OpenTelemetryWebConfig implements WebMvcConfigurer {
                 return;
             }
 
+            Span.current().updateName("http.request");
             int statusCode = response.getStatus();
             span.setAttribute("http.status_code", statusCode);
             span.setAttribute("http.response.status_code", statusCode);
