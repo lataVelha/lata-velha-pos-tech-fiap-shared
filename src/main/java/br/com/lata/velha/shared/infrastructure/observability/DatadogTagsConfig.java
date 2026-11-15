@@ -4,6 +4,8 @@ import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.sdk.trace.SpanProcessor;
 import io.opentelemetry.sdk.trace.ReadWriteSpan;
+import io.opentelemetry.sdk.trace.ReadableSpan;
+import org.slf4j.MDC;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -58,6 +60,42 @@ public class DatadogTagsConfig {
             @Override
             public boolean isEndRequired() {
                 return false;
+            }
+        };
+    }
+
+    /**
+     * Story 19.4/21.2: injeta trace_id/span_id no MDC para que o logback
+     * (LogstashEncoder) publique os campos no JSON e o Datadog consiga
+     * correlacionar log <-> trace via @trace_id.
+     */
+    @Bean
+    public SpanProcessor mdcTraceContextProcessor() {
+        logger.info("Registrando SpanProcessor de MDC - trace_id/span_id nos logs");
+        return new SpanProcessor() {
+            @Override
+            public void onStart(Context parentContext, ReadWriteSpan span) {
+                var spanContext = span.getSpanContext();
+                if (spanContext.isValid()) {
+                    MDC.put("trace_id", spanContext.getTraceId());
+                    MDC.put("span_id", spanContext.getSpanId());
+                }
+            }
+
+            @Override
+            public void onEnd(ReadableSpan span) {
+                MDC.remove("trace_id");
+                MDC.remove("span_id");
+            }
+
+            @Override
+            public boolean isStartRequired() {
+                return true;
+            }
+
+            @Override
+            public boolean isEndRequired() {
+                return true;
             }
         };
     }
