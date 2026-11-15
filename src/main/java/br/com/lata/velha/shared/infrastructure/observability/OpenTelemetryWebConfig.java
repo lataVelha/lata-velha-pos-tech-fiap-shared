@@ -57,10 +57,7 @@ public class OpenTelemetryWebConfig implements WebMvcConfigurer {
             span.setAttribute("server.address", request.getServerName());
             span.setAttribute("http.scheme", request.getScheme());
             span.setAttribute("url.scheme", request.getScheme());
-            span.setAttribute("http.user_agent", request.getHeader("User-Agent"));
-            span.setAttribute("user_agent.original", request.getHeader("User-Agent"));
-            span.setAttribute("http.client_ip", getClientIp(request));
-            span.setAttribute("client.address", getClientIp(request));
+            // Story 19.5: não enviar IP, User-Agent nem headers sensíveis.
 
             if (pattern != null && !pattern.isEmpty()) {
                 span.setAttribute("http.route", pattern);
@@ -97,15 +94,13 @@ public class OpenTelemetryWebConfig implements WebMvcConfigurer {
 
             if (statusCode >= 500) {
                 span.setStatus(StatusCode.ERROR, "HTTP " + statusCode);
-                logger.debug("Span HTTP finalizado com erro: {} {} - status: {}", 
-                    request.getMethod(), request.getRequestURI(), statusCode);
-            } else if (statusCode >= 400) {
-                span.setStatus(StatusCode.ERROR, "HTTP " + statusCode);
-                logger.debug("Span HTTP finalizado com erro cliente: {} {} - status: {}", 
+                span.setAttribute("error.type", "HTTP_" + statusCode);
+                logger.debug("Span HTTP finalizado com erro: {} {} - status: {}",
                     request.getMethod(), request.getRequestURI(), statusCode);
             } else {
+                // 4xx é decisão de negócio/validação, não erro 5xx (Story 19.3).
                 span.setStatus(StatusCode.OK);
-                logger.debug("Span HTTP finalizado com sucesso: {} {} - status: {}", 
+                logger.debug("Span HTTP finalizado: {} {} - status: {}",
                     request.getMethod(), request.getRequestURI(), statusCode);
             }
 
@@ -122,16 +117,5 @@ public class OpenTelemetryWebConfig implements WebMvcConfigurer {
             return pattern != null ? pattern.toString() : null;
         }
 
-        private String getClientIp(HttpServletRequest request) {
-            String xForwardedFor = request.getHeader("X-Forwarded-For");
-            if (xForwardedFor != null && !xForwardedFor.isEmpty()) {
-                return xForwardedFor.split(",")[0].trim();
-            }
-            String xRealIp = request.getHeader("X-Real-IP");
-            if (xRealIp != null && !xRealIp.isEmpty()) {
-                return xRealIp;
-            }
-            return request.getRemoteAddr();
-        }
     }
 }

@@ -4,6 +4,7 @@ import br.com.lata.velha.shared.application.gateways.EventPublisher;
 import br.com.lata.velha.shared.application.logging.Logger;
 import br.com.lata.velha.shared.domain.events.DomainEvent;
 import br.com.lata.velha.shared.infrastructure.messaging.EventSerializer;
+import br.com.lata.velha.shared.infrastructure.messaging.MessagingAttributes;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
@@ -72,6 +73,12 @@ public class SqsEventPublisher implements EventPublisher {
                 .startSpan();
 
         try (Scope ignored = span.makeCurrent()) {
+            span.setAttribute("messaging.system", "aws_sns");
+            span.setAttribute("messaging.destination.name", MessagingAttributes.destinationName(topicArn));
+            span.setAttribute("messaging.operation", "publish");
+            span.setAttribute("messaging.message.body.size", MessagingAttributes.bodySize(json));
+            span.setAttribute("cloud.provider", "aws");
+
             if (tracePropagationEnabled) {
                 Map<String, String> carrier = new HashMap<>();
                 PROPAGATOR.inject(Context.current(), carrier, SETTER);
@@ -81,11 +88,12 @@ public class SqsEventPublisher implements EventPublisher {
                         .build()));
             }
 
-            snsClient.publish(PublishRequest.builder()
+            var response = snsClient.publish(PublishRequest.builder()
                     .topicArn(topicArn)
                     .message(json)
                     .messageAttributes(attributes)
                     .build());
+            span.setAttribute("messaging.message.id", response.messageId());
         } catch (RuntimeException e) {
             span.recordException(e);
             throw e;

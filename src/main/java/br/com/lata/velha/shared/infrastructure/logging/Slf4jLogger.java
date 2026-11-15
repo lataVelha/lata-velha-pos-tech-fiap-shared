@@ -67,10 +67,14 @@ public class Slf4jLogger implements Logger {
     }
 
     private void log(int level, String message, Object[] args, Throwable t) {
+        String safeMessage = PiiMasker.mask(message);
+        Object[] safeArgs = args == null
+                ? null
+                : java.util.Arrays.stream(args).map(PiiMasker::maskArg).toArray();
         if (log instanceof LocationAwareLogger locationAwareLogger) {
-            locationAwareLogger.log(null, FQCN, level, message, args, t);
+            locationAwareLogger.log(null, FQCN, level, safeMessage, safeArgs, t);
         } else {
-            logFallback(level, message, args, t);
+            logFallback(level, safeMessage, safeArgs, t);
         }
     }
 

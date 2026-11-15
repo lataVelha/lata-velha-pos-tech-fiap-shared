@@ -4,6 +4,7 @@ import br.com.lata.velha.shared.application.logging.Logger;
 import br.com.lata.velha.shared.infrastructure.messaging.EventEnvelope;
 import br.com.lata.velha.shared.infrastructure.messaging.EventHandlerRegistry;
 import br.com.lata.velha.shared.infrastructure.messaging.EventSerializer;
+import br.com.lata.velha.shared.infrastructure.messaging.MessagingAttributes;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
@@ -158,6 +159,20 @@ public class SqsEventListener implements SmartLifecycle {
                 .startSpan();
 
         try (Scope ignored = span.makeCurrent()) {
+            span.setAttribute("messaging.system", "aws_sqs");
+            span.setAttribute("messaging.destination.name", MessagingAttributes.destinationName(queueUrl));
+            span.setAttribute("messaging.operation", "process");
+            span.setAttribute("messaging.message.id", message.messageId());
+            span.setAttribute("messaging.message.body.size", MessagingAttributes.bodySize(message.body()));
+            span.setAttribute("messaging.batch.message_count", 1);
+            span.setAttribute("cloud.provider", "aws");
+            String receiveCount = message.attributes() == null
+                    ? null
+                    : message.attributes().get(software.amazon.awssdk.services.sqs.model.MessageSystemAttributeName.APPROXIMATE_RECEIVE_COUNT);
+            if (receiveCount != null) {
+                span.setAttribute("messaging.message.receive_count", receiveCount);
+            }
+
             envelope = serializer.deserializeEnvelope(message.body());
             span.updateName("SQS Process " + envelope.eventType());
             registry.dispatch(envelope);
