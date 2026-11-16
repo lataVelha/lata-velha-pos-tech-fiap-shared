@@ -86,7 +86,7 @@ class DomainEventsContractTest {
     void deveExporDiagnosticoFinalizado() {
         var peca = new DiagnosticoFinalizadoEvent.ItemPeca(PECA_ID, 2);
         var item = new DiagnosticoFinalizadoEvent.ItemDiagnostico(1L, 2L, new BigDecimal("10.00"), List.of(peca));
-        var event = new DiagnosticoFinalizadoEvent(5L, List.of(item));
+        var event = new DiagnosticoFinalizadoEvent(5L, List.of(item), "cliente@test.com");
 
         assertThat(event.eventType()).isEqualTo("DiagnosticoFinalizado");
         assertThat(event.getOsId()).isEqualTo(5L);
