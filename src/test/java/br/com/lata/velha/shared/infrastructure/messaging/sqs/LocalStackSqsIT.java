@@ -17,6 +17,7 @@ import software.amazon.awssdk.services.sqs.model.*;
 
 import java.net.URI;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -111,6 +112,20 @@ class LocalStackSqsIT {
     }
 
     @Test
+    @DisplayName("traceparent sobrevive ao raw delivery do SNS para o SQS")
+    void devePreservarTraceparentNoFanout() {
+        var traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+        publish("OrcamentoAprovado", traceparent);
+
+        var message = awaitMessage(Duration.ofSeconds(10));
+
+        assertThat(message).isNotNull();
+        assertThat(message.messageAttributes()).containsKey("traceparent");
+        assertThat(message.messageAttributes().get("traceparent").stringValue())
+                .isEqualTo(traceparent);
+    }
+
+    @Test
     @DisplayName("evento com eventType fora do filter policy não é entregue")
     void naoDeveEntregarEventoForaDoFiltro() {
         publish("ServiceEnded");
@@ -143,14 +158,26 @@ class LocalStackSqsIT {
     }
 
     private void publish(String eventType) {
+        publish(eventType, null);
+    }
+
+    private void publish(String eventType, String traceparent) {
+        var attributes = new HashMap<String, MessageAttributeValue>();
+        attributes.put("eventType", MessageAttributeValue.builder()
+                .dataType("String")
+                .stringValue(eventType)
+                .build());
+        if (traceparent != null) {
+            attributes.put("traceparent", MessageAttributeValue.builder()
+                    .dataType("String")
+                    .stringValue(traceparent)
+                    .build());
+        }
+
         sns.publish(PublishRequest.builder()
                 .topicArn(topicArn)
                 .message(MESSAGE.trim())
-                .messageAttributes(Map.of(
-                        "eventType", MessageAttributeValue.builder()
-                                .dataType("String")
-                                .stringValue(eventType)
-                                .build()))
+                .messageAttributes(attributes)
                 .build());
     }
 
@@ -161,6 +188,7 @@ class LocalStackSqsIT {
                     .queueUrl(queueUrl)
                     .maxNumberOfMessages(1)
                     .waitTimeSeconds(1)
+                    .messageAttributeNames("All")
                     .build()).messages();
             if (!messages.isEmpty()) {
                 return messages.getFirst();

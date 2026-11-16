@@ -46,7 +46,7 @@ public class SqsEventPublisher implements EventPublisher {
     @Value("${messaging.sqs.topic-arn:}")
     private String topicArn;
 
-    @Value("${OTEL_INSTRUMENTATION_AWS_SDK_ENABLED:true}")
+    @Value("${messaging.trace-propagation.enabled:${OTEL_INSTRUMENTATION_AWS_SDK_ENABLED:true}}")
     private boolean tracePropagationEnabled;
 
     public SqsEventPublisher(SnsClient snsClient, EventSerializer serializer, Logger logger) {
@@ -75,6 +75,7 @@ public class SqsEventPublisher implements EventPublisher {
         try (Scope ignored = span.makeCurrent()) {
             span.setAttribute("messaging.system", "aws_sns");
             span.setAttribute("messaging.destination.name", MessagingAttributes.destinationName(topicArn));
+            span.setAttribute("messaging.destination.kind", "topic");
             span.setAttribute("messaging.operation", "publish");
             span.setAttribute("messaging.message.body.size", MessagingAttributes.bodySize(json));
             span.setAttribute("cloud.provider", "aws");

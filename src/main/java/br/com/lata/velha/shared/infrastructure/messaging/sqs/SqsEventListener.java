@@ -5,7 +5,7 @@ import br.com.lata.velha.shared.infrastructure.messaging.EventEnvelope;
 import br.com.lata.velha.shared.infrastructure.messaging.EventHandlerRegistry;
 import br.com.lata.velha.shared.infrastructure.messaging.EventSerializer;
 import br.com.lata.velha.shared.infrastructure.messaging.MessagingAttributes;
-import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.Tracer;
@@ -21,6 +21,7 @@ import org.springframework.stereotype.Component;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.DeleteMessageRequest;
 import software.amazon.awssdk.services.sqs.model.Message;
+import software.amazon.awssdk.services.sqs.model.MessageSystemAttributeName;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 
 import java.util.HashMap;
@@ -61,12 +62,12 @@ public class SqsEventListener implements SmartLifecycle {
             return carrier == null ? null : carrier.get(key);
         }
     };
-    private static final Tracer TRACER = GlobalOpenTelemetry.getTracer("lata-velha.messaging");
 
     private final SqsClient sqsClient;
     private final EventHandlerRegistry registry;
     private final EventSerializer serializer;
     private final Logger logger;
+    private final Tracer tracer;
 
     @Value("${messaging.sqs.queue-url:}")
     private String queueUrl;
@@ -74,18 +75,20 @@ public class SqsEventListener implements SmartLifecycle {
     @Value("${messaging.sqs.wait-time-seconds:20}")
     private int waitTimeSeconds;
 
-    @Value("${OTEL_INSTRUMENTATION_AWS_SDK_ENABLED:true}")
+    @Value("${messaging.trace-propagation.enabled:${OTEL_INSTRUMENTATION_AWS_SDK_ENABLED:true}}")
     private boolean tracePropagationEnabled;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private ExecutorService executor;
 
     public SqsEventListener(SqsClient sqsClient, EventHandlerRegistry registry,
-                             EventSerializer serializer, Logger logger) {
+                             EventSerializer serializer, Logger logger,
+                             OpenTelemetry openTelemetry) {
         this.sqsClient = sqsClient;
         this.registry = registry;
         this.serializer = serializer;
         this.logger = logger;
+        this.tracer = openTelemetry.getTracer("lata-velha.messaging");
     }
 
     @Override
@@ -134,11 +137,13 @@ public class SqsEventListener implements SmartLifecycle {
         }
     }
 
-    private void receiveAndProcessBatch() {
+    void receiveAndProcessBatch() {
         var request = ReceiveMessageRequest.builder()
                 .queueUrl(queueUrl)
                 .maxNumberOfMessages(10)
                 .waitTimeSeconds(waitTimeSeconds)
+                .messageAttributeNames("All")
+                .messageSystemAttributeNames(MessageSystemAttributeName.APPROXIMATE_RECEIVE_COUNT)
                 .build();
 
         List<Message> messages = sqsClient.receiveMessage(request).messages();
@@ -153,7 +158,7 @@ public class SqsEventListener implements SmartLifecycle {
         Context parent = tracePropagationEnabled
                 ? PROPAGATOR.extract(Context.current(), carrierOf(message), GETTER)
                 : Context.current();
-        Span span = TRACER.spanBuilder("SQS Process")
+        Span span = tracer.spanBuilder("SQS Process")
                 .setParent(parent)
                 .setSpanKind(SpanKind.CONSUMER)
                 .startSpan();
@@ -161,6 +166,7 @@ public class SqsEventListener implements SmartLifecycle {
         try (Scope ignored = span.makeCurrent()) {
             span.setAttribute("messaging.system", "aws_sqs");
             span.setAttribute("messaging.destination.name", MessagingAttributes.destinationName(queueUrl));
+            span.setAttribute("messaging.destination.kind", "queue");
             span.setAttribute("messaging.operation", "process");
             span.setAttribute("messaging.message.id", message.messageId());
             span.setAttribute("messaging.message.body.size", MessagingAttributes.bodySize(message.body()));
@@ -194,7 +200,7 @@ public class SqsEventListener implements SmartLifecycle {
         }
     }
 
-    private Map<String, String> carrierOf(Message message) {
+    Map<String, String> carrierOf(Message message) {
         if (message.messageAttributes() == null || message.messageAttributes().isEmpty()) {
             return Map.of();
         }
